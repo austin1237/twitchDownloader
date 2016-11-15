@@ -4,6 +4,7 @@ This is currently a go script that is using to [Livestreamer](http://docs.livest
 
 ### Dependencies
 Since this script is using [Livestreamer](http://docs.livestreamer.io/install.html#dependencies) it has dependencies out side of golang. The outside dependencies are
+
 1. python with at least version 2.6 or 3.3.
 2. The Livestreamer package itself installed
 3. Access to bash
