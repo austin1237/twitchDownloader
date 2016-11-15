@@ -65,7 +65,6 @@ case <-time.After(30 * time.Second):
 		}
 	// command finished possible error sent through the channel commandFinished
 	case err := <- commandFinished:
-	log.Println("command died")
 		if err != nil{
 			done <- string(err.Error())
 		}else{
