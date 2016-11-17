@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"os"
-	"os/exec"
+	"strings"
 	"time"
+	"os/exec"
 )
 
 var (
@@ -41,62 +43,60 @@ func init() {
 	finished = Output + ".mp4"
 }
 
-func downloadStream(done chan string) {
-	commandFinished := make(chan error, 1)
+func downloadStream(done chan error) {
+	commandFinished := make(chan string, 1)
 	cmdString := "echo y |"
 	cmdString = cmdString + " livestreamer https://www.twitch.tv/" + StreamName + " best"
 	cmdString = cmdString + " --twitch-oauth-token=" + Token
 	cmdString = cmdString + " -o=" + inProgress
 	cmdString = cmdString + " --hls-segment-threads=3"
 	cmd := exec.Command("bash", "-c", cmdString)
-	cmd.Start()
-	log.Println("command started")
+	// runs the command and waits for its output
 	go func() {
-		commandFinished <- cmd.Wait()
+		cmdOutputByteArray, _ := cmd.Output()
+		commandFinished <- string(cmdOutputByteArray)
 	}()
 	select {
-	// 30 seconds passed after commend ran
+	// 30 seconds passed after command ran
+	// livestreamer will not exit will downloading so we'll kill it
 	case <-time.After(30 * time.Second):
 		log.Println("30 seconds have passed")
-		if err := cmd.Process.Kill(); err != nil {
-			done <- "process failed to be kill " + err.Error()
+		err := cmd.Process.Kill()
+		done <- err
+	// bash command exited before 30 seconds were up
+	case cmdOutput := <-commandFinished:
+		if strings.Contains(cmdOutput, "No streams found on this URL") {
+			done <- errors.New("stream is offline")
 		} else {
-			done <- ""
-		}
-	// command finished possible error sent through the channel commandFinished
-	case err := <-commandFinished:
-		if err != nil {
-			done <- string(err.Error())
-		} else {
-			cmdOutput, _ := cmd.Output()
-			done <- string(cmdOutput)
+			done <- errors.New("unkown error " + cmdOutput)
 		}
 	}
 }
 
 func renameVideo(done chan string) {
-	cmd := exec.Command("bash", "-c", "cp "+inProgress+" "+finished)
-	cmd.Start()
-	cmd.Wait()
-	cmdOutput, _ := cmd.Output()
-	done <- string(cmdOutput)
+	cmd := exec.Command("bash", "-c", "cp "+ inProgress +" "+ finished)
+	cmdOutputByteArray, _ := cmd.Output()
+	done <- string(cmdOutputByteArray)
 }
 
 func recurisveDownload(done chan bool) {
-	downloaded := make(chan string, 1)
+	downloaded := make(chan error, 1)
 	renamed := make(chan string, 1)
 	go downloadStream(downloaded)
-	liveStreamerOutput := <-downloaded
-	if liveStreamerOutput == "" {
+	downloadErr := <-downloaded
+	if downloadErr == nil {
 		log.Println("clip downloaded successfully")
 		go renameVideo(renamed)
 		<-renamed
 		log.Println("redownloading stream")
 		recurisveDownload(done)
-	} else {
-		log.Println("An error occured waiting 1 minute to retry")
+	} else if downloadErr.Error() == "stream is offline" {
+		log.Println("stream is offline will retry in a minute")
 		<-time.After(1 * time.Minute)
 		recurisveDownload(done)
+	} else {
+		log.Println(downloadErr.Error())
+		close(done)
 	}
 }
 
