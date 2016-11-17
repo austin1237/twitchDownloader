@@ -5,9 +5,9 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
-	"os/exec"
 )
 
 var (
@@ -74,7 +74,7 @@ func downloadStream(done chan error) {
 }
 
 func renameVideo(done chan string) {
-	cmd := exec.Command("bash", "-c", "cp "+ inProgress +" "+ finished)
+	cmd := exec.Command("bash", "-c", "cp "+inProgress+" "+finished)
 	cmdOutputByteArray, _ := cmd.Output()
 	done <- string(cmdOutputByteArray)
 }
