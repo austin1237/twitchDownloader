@@ -1,6 +1,6 @@
 twitchDownloader
 ====
-This is currently a go script that is using to [Livestreamer](http://docs.livestreamer.io/) to download 30 second clips from twitch.tv streams
+This is currently a go script that is using to [Livestreamer](http://docs.livestreamer.io/) to download clips from twitch.tv streams and upload them to s3
 
 ### Dependencies
 Since this script is using [Livestreamer](http://docs.livestreamer.io/install.html#dependencies) it has dependencies out side of golang. The outside dependencies are
@@ -19,10 +19,8 @@ go install
 ```
 
 ### Start
-The below example shows how to start recording clips of https://www.twitch.tv/drdisrespectlive and output the video files to the current directory labeled drdisrepect.mp4
+The below example shows how to start recording clips of https://www.twitch.tv/saltybet and upload the file to the s3bucket test
 
 ```sh
-$GOPATH/bin/twitchDownloader -t="TWITCH_OAUTH_TOKEN" -n="drdisrespectlive" -o="drdisrespect"
+$GOPATH/bin/twitchDownloader -t="TWITCH_OAUTH_TOKEN" -n="saltybet" --awsID="YOUR_AWS_ID" --awsSecret="YOUR_AWS_SECRET" --bucket="
 ```
-
-If the selected stream is offline the script will wait 1 minute and try downloading it again

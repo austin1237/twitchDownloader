@@ -1,36 +1,45 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 var (
 	StreamName string
-	Output     string
 	Token      string
-	inProgress string
-	finished   string
+	awsID      string
+	awsSecret  string
+	bucket     string
+	fileName   string
 )
 
 func init() {
 	flag.StringVar(&StreamName, "n", "", "Twitch Stream Name")
-	flag.StringVar(&Output, "o", "", "Output destination for video files")
 	flag.StringVar(&Token, "t", "", "Twitch OAuth Token")
+	flag.StringVar(&awsID, "awsID", "", "AWS account with s3 access")
+	flag.StringVar(&awsSecret, "awsSecret", "", "AWS secret with s3 access")
+	flag.StringVar(&bucket, "bucket", "", "S3 bucketname")
+
 	flag.Parse()
 
 	if StreamName == "" {
 		log.Println("Twitch stream name was not provided")
-		os.Exit(1)
-	}
-
-	if Output == "" {
-		log.Println("Desination for video files was not chosen")
 		os.Exit(1)
 	}
 
@@ -39,17 +48,32 @@ func init() {
 		os.Exit(1)
 	}
 
-	inProgress = Output + "InProgress.mp4"
-	finished = Output + ".mp4"
+	if awsID == "" {
+		log.Println("awsID was not provided")
+		os.Exit(1)
+	}
+
+	if awsSecret == "" {
+		log.Println("awsSecret was not provided")
+		os.Exit(1)
+	}
+
+	if bucket == "" {
+		log.Println("bucket was not provided")
+		os.Exit(1)
+	}
+
+	fileName = StreamName + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 }
 
 func downloadStream(done chan error) {
-	commandFinished := make(chan string, 1)
+	commandFinished := make(chan string)
 	cmdString := "echo y |"
 	cmdString = cmdString + " livestreamer https://www.twitch.tv/" + StreamName + " best"
 	cmdString = cmdString + " --twitch-oauth-token=" + Token
-	cmdString = cmdString + " -o=" + inProgress
+	cmdString = cmdString + " -o=" + fileName
 	cmdString = cmdString + " --hls-segment-threads=3"
+	fmt.Println(cmdString)
 	cmd := exec.Command("bash", "-c", cmdString)
 	// runs the command and waits for its output
 	go func() {
@@ -61,10 +85,13 @@ func downloadStream(done chan error) {
 	// livestreamer will not exit will downloading so we'll kill it
 	case <-time.After(30 * time.Second):
 		log.Println("30 seconds have passed")
-		err := cmd.Process.Kill()
-		done <- err
+		cmd.Process.Kill()
+		cmd.Wait()
+		log.Print("returning")
+		close(done)
 	// bash command exited before 30 seconds were up
 	case cmdOutput := <-commandFinished:
+		log.Println("error occured")
 		if strings.Contains(cmdOutput, "No streams found on this URL") {
 			done <- errors.New("stream is offline")
 		} else {
@@ -73,36 +100,46 @@ func downloadStream(done chan error) {
 	}
 }
 
-func renameVideo(done chan string) {
-	cmd := exec.Command("bash", "-c", "cp "+inProgress+" "+finished)
-	cmdOutputByteArray, _ := cmd.Output()
-	done <- string(cmdOutputByteArray)
-}
-
-func recurisveDownload(done chan bool) {
-	downloaded := make(chan error, 1)
-	renamed := make(chan string, 1)
-	go downloadStream(downloaded)
-	downloadErr := <-downloaded
-	if downloadErr == nil {
-		log.Println("clip downloaded successfully")
-		go renameVideo(renamed)
-		<-renamed
-		log.Println("redownloading stream")
-		recurisveDownload(done)
-	} else if downloadErr.Error() == "stream is offline" {
-		log.Println("stream is offline will retry in a minute")
-		<-time.After(1 * time.Minute)
-		recurisveDownload(done)
-	} else {
-		log.Println(downloadErr.Error())
-		close(done)
+func uploadFile() {
+	creds := credentials.NewStaticCredentials(awsID, awsSecret, "")
+	_, err := creds.Get()
+	if err != nil {
+		fmt.Printf("bad credentials: %s", err)
 	}
+	cfg := aws.NewConfig().WithRegion("us-west-2").WithCredentials(creds)
+	svc := s3.New(session.New(), cfg)
+
+	file, err := os.Open(fileName)
+	if err != nil {
+		fmt.Printf("err opening file: %s", err)
+	}
+	defer file.Close()
+	fileInfo, _ := file.Stat()
+	size := fileInfo.Size()
+	buffer := make([]byte, size) // read file content to buffer
+
+	file.Read(buffer)
+	fileBytes := bytes.NewReader(buffer)
+	fileType := http.DetectContentType(buffer)
+	path := file.Name()
+	params := &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(path),
+		Body:          fileBytes,
+		ContentLength: aws.Int64(size),
+		ContentType:   aws.String(fileType),
+	}
+	resp, err := svc.PutObject(params)
+	if err != nil {
+		fmt.Printf("bad response: %s", err)
+	}
+	fmt.Printf("response %s", awsutil.StringValue(resp))
 }
 
 func main() {
-	done := make(chan bool)
-	recurisveDownload(done)
+	done := make(chan error)
+	downloadStream(done)
 	<-done
+	uploadFile()
 	log.Println("program exited")
 }
