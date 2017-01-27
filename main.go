@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -26,7 +24,7 @@ var (
 	awsID      string
 	awsSecret  string
 	bucket     string
-	fileName   string
+	filePath   string
 )
 
 func init() {
@@ -63,20 +61,25 @@ func init() {
 		os.Exit(1)
 	}
 
-	fileName = StreamName + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+	filePath = StreamName + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 }
 
 func downloadStream(done chan error) {
 	commandFinished := make(chan string)
+	// Get the home dir location
+
+	// Invoke livestreamer
 	cmdString := "echo y |"
 	cmdString = cmdString + " livestreamer https://www.twitch.tv/" + StreamName + " best"
 	cmdString = cmdString + " --twitch-oauth-token=" + Token
-	cmdString = cmdString + " -o=" + fileName
+	cmdString = cmdString + " -o=" + filePath
 	cmdString = cmdString + " --hls-segment-threads=3"
+	cmdString = cmdString + " --yes-run-as-root"
 	fmt.Println(cmdString)
 	cmd := exec.Command("bash", "-c", cmdString)
 	// runs the command and waits for its output
 	go func() {
+		log.Println("Starting livestreamer")
 		cmdOutputByteArray, _ := cmd.Output()
 		commandFinished <- string(cmdOutputByteArray)
 	}()
@@ -84,19 +87,14 @@ func downloadStream(done chan error) {
 	// 30 seconds passed after command ran
 	// livestreamer will not exit will downloading so we'll kill it
 	case <-time.After(30 * time.Second):
-		log.Println("30 seconds have passed")
+		log.Println("Stopping livestreamer")
 		cmd.Process.Kill()
 		cmd.Wait()
-		log.Print("returning")
 		close(done)
 	// bash command exited before 30 seconds were up
 	case cmdOutput := <-commandFinished:
-		log.Println("error occured")
-		if strings.Contains(cmdOutput, "No streams found on this URL") {
-			done <- errors.New("stream is offline")
-		} else {
-			done <- errors.New("unkown error " + cmdOutput)
-		}
+		log.Println("error occured with livestreamer", cmdOutput)
+		close(done)
 	}
 }
 
@@ -109,9 +107,10 @@ func uploadFile() {
 	cfg := aws.NewConfig().WithRegion("us-west-2").WithCredentials(creds)
 	svc := s3.New(session.New(), cfg)
 
-	file, err := os.Open(fileName)
+	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Printf("err opening file: %s", err)
+		fmt.Println("stream didnt download properly")
+		panic(err)
 	}
 	defer file.Close()
 	fileInfo, _ := file.Stat()
@@ -133,6 +132,7 @@ func uploadFile() {
 	if err != nil {
 		fmt.Printf("bad response: %s", err)
 	}
+	os.Remove(filePath)
 	fmt.Printf("response %s", awsutil.StringValue(resp))
 }
 

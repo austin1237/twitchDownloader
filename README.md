@@ -15,6 +15,7 @@ This assumes your in the project's directory
 Build the binary
 
 ```sh
+
 go install
 ```
 
@@ -22,5 +23,5 @@ go install
 The below example shows how to start recording clips of https://www.twitch.tv/saltybet and upload the file to the s3bucket test
 
 ```sh
-$GOPATH/bin/twitchDownloader -t="TWITCH_OAUTH_TOKEN" -n="saltybet" --awsID="YOUR_AWS_ID" --awsSecret="YOUR_AWS_SECRET" --bucket="
+$GOPATH/bin/twitchDownloader -t="TWITCH_OAUTH_TOKEN" -n="saltybet" --awsID="YOUR_AWS_ID" --awsSecret="YOUR_AWS_SECRET" --bucket="test"
 ```

@@ -1,0 +1,9 @@
+package: github.com/austin1237/twitchDownloader
+import:
+- package: github.com/aws/aws-sdk-go
+  subpackages:
+  - aws
+  - aws/awsutil
+  - aws/credentials
+  - aws/session
+  - service/s3
